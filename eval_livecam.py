@@ -6,6 +6,7 @@ import torchvision.transforms as transforms
 from PIL import Image
 import numpy as np
 from approach.ResEmoteNet import ResEmoteNet
+from facedet import SCRFD
 
 
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
@@ -14,7 +15,7 @@ device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 emotions = ['happy', 'surprise', 'sad', 'anger', 'disgust', 'fear', 'neutral']
 
 model = ResEmoteNet().to(device)
-checkpoint = torch.load('best_model.pth', weights_only=True)
+checkpoint = torch.load('Models/fer2013_model.pth', weights_only=True)
 model.load_state_dict(checkpoint['model_state_dict'])
 model.eval()
 
@@ -79,13 +80,50 @@ def print_all_emotion(x, y, w, h, video_frame):
         org = (org[0], y)
         cv2.putText(video_frame, emotion_str, org, font, font_scale, font_color, thickness, line_type)
     
-    
+
 # Identify Face in Video Stream
 def detect_bounding_box(video_frame, counter):
     global max_emotion
     gray_image = cv2.cvtColor(video_frame, cv2.COLOR_BGR2GRAY)
-    faces = face_classifier.detectMultiScale(gray_image, 1.1, 5, minSize=(40, 40))
-    for (x, y, w, h) in faces:
+    #faces = face_classifier.detectMultiScale(gray_image, 1.1, 5, minSize=(40, 40))
+    face_detector = SCRFD(model_path="Models/det_10g.onnx")
+    bboxes, keypoints = face_detector.detect(video_frame)
+    for bbox, keypoint in zip(bboxes, keypoints):
+        x_min, y_min, x_max, y_max = map(int, bbox[:4])
+        width = x_max - x_min
+        height = y_max - y_min
+
+        corner_length = int(0.2 * min(width, height))
+        color=(0, 255, 0)
+        image = video_frame
+        # Draw the rectangle
+        cv2.rectangle(image, (x_min, y_min), (x_max, y_max), color, 1)
+
+        # Top-left corner
+        cv2.line(image, (x_min, y_min), (x_min + corner_length, y_min), color, thickness)
+        cv2.line(image, (x_min, y_min), (x_min, y_min + corner_length), color, thickness)
+
+        # Top-right corner
+        cv2.line(image, (x_max, y_min), (x_max - corner_length, y_min), color, thickness)
+        cv2.line(image, (x_max, y_min), (x_max, y_min + corner_length), color, thickness)
+
+        # Bottom-left corner
+        cv2.line(image, (x_min, y_max), (x_min, y_max - corner_length), color, thickness)
+        cv2.line(image, (x_min, y_max), (x_min + corner_length, y_max), color, thickness)
+
+        # Bottom-right corner
+        cv2.line(image, (x_max, y_max), (x_max, y_max - corner_length), color, thickness)
+        cv2.line(image, (x_max, y_max), (x_max - corner_length, y_max), color, thickness)
+        x = x_min
+        y = y_min
+        w = width
+        h = height
+        if counter == 0:
+            max_emotion = get_max_emotion(x, y, w, h, video_frame) 
+        
+        print_max_emotion(x, y, video_frame, max_emotion) 
+        print_all_emotion(x, y, w, h, video_frame)
+    '''for (x, y, w, h) in faces:
         # Draw bounding box on face
         cv2.rectangle(video_frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
         # Crop bounding box
@@ -93,8 +131,8 @@ def detect_bounding_box(video_frame, counter):
             max_emotion = get_max_emotion(x, y, w, h, video_frame) 
         
         print_max_emotion(x, y, video_frame, max_emotion) 
-        print_all_emotion(x, y, w, h, video_frame) 
-
+        print_all_emotion(x, y, w, h, video_frame) '''
+    faces = list(bboxes)
     return faces
 
 counter = 0
